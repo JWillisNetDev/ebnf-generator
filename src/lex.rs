@@ -9,10 +9,11 @@ use std::iter::Peekable;
 // alternation   | |
 // exception     | -
 // optional      | [ ... ] None or Once
-// repitition    | { ... } None or More
+// repetition    | { ... } None or More
 // grouping      | ( ... )
 // literal       | " ... "
 // comment       | (* ... *)
+// comment       | #
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
@@ -74,6 +75,36 @@ impl<T: IntoIterator<Item = char>> Lexer<T> {
         }
     }
 
+    fn eat_one_line_comment(&mut self) {
+        while let Some(&c) = self.inner.peek() {
+            if c == '\n' {
+                self.inner.next(); // Consume the newline
+                break;
+            } else {
+                self.inner.next();
+            }
+        }
+        // Can sometimes eat until the end of the input. That's fine.
+    }
+
+    fn eat_delimited_comment(&mut self) -> LexResult<()> {
+        // Eat until we find the closing delimiter
+        while let Some(&c) = self.inner.peek() {
+            if c == '*' {
+                self.inner.next(); // Consume the '*'
+                // Check the next character
+                if self.inner.peek() == Some(&')') {
+                    self.inner.next(); // Consume the ')'
+                    return Ok(());
+                }
+            } else {
+                self.inner.next();
+            }
+        }
+
+        Err("Unterminated comment encountered at end of input".to_string())
+    }
+
     fn read_until(&mut self, delim: char) -> LexResult<String> {
         let mut buf = String::new();
         while let Some(&c) = self.inner.peek() {
@@ -128,6 +159,31 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
         // Attempt to read the next token
         use Token::*;
         match self.inner.peek() {
+            Some(&'(') => {
+                // Can either be a grouping or a comment
+                self.inner.next(); // Consume the '('
+                if self.inner.peek() == Some(&'*') {
+                    // This is a delimited comment
+                    self.inner.next(); // Consume the '*'
+                    if let Err(err) = self.eat_delimited_comment() {
+                        Some(Error(err))
+                    } else {
+                        self.next() // Recurse to the next token after the comment
+                    }
+                } else {
+                    Some(OpeningParen)
+                }
+            }
+            Some(&')') => {
+                self.inner.next();
+                Some(ClosingParen)
+            }
+            Some(&'#') => {
+                // This is a one-line comment
+                self.inner.next(); // Consume the '#'
+                self.eat_one_line_comment();
+                self.next() // Recurse to the next token after the comment
+            }
             Some(&'=') => {
                 self.inner.next();
                 Some(Assignment)
@@ -182,6 +238,30 @@ mod test {
         let input = r#"
         boolean = "true" | "false";
         "#;
+
+        let lexer = Lexer::new(input.chars());
+        let tokens: Vec<Token> = lexer.collect();
+
+        use Token::*;
+        assert_eq!(tokens.len(), 6);
+        assert_eq!(
+            [
+                identifier!("boolean"),
+                Assignment,
+                literal!("true"),
+                Separator,
+                literal!("false"),
+                Terminator,
+            ],
+            tokens.as_slice()
+        );
+    }
+
+    #[test]
+    pub fn it_eats_comments() {
+        let input = r#"
+        (* This is a comment *)
+        boolean = "true" | "false"; # this is also a comment"#;
 
         let lexer = Lexer::new(input.chars());
         let tokens: Vec<Token> = lexer.collect();
