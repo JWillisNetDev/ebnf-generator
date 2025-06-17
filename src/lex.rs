@@ -105,7 +105,20 @@ impl<T: IntoIterator<Item = char>> Lexer<T> {
         Err("Unterminated comment encountered at end of input".to_string())
     }
 
-    fn read_until(&mut self, delim: char) -> LexResult<String> {
+    fn read_until(&mut self, predicate: fn(char) -> bool) -> LexResult<String> {
+        let mut buf = String::new();
+        while let Some(&c) = self.inner.peek() {
+            if predicate(c) {
+                return Ok(buf);
+            } else {
+                self.inner.next(); // Consume the character
+                buf.push(c);
+            }
+        }
+        Err("Expected a predicate to be resolved, but reached end of input".to_string())
+    }
+
+    fn read_until_char(&mut self, delim: char) -> LexResult<String> {
         let mut buf = String::new();
         while let Some(&c) = self.inner.peek() {
             if c == delim {
@@ -121,9 +134,12 @@ impl<T: IntoIterator<Item = char>> Lexer<T> {
 
     fn read_next_identifier(&mut self) -> NextTokenResult {
         // We can assume the next character is alphanumeric or an underscore
-        // Read valid characters until we hit an '='
+        // Read characters until we hit a character that is not valid in an identifier
         // Spaces are valid between parts of an identifier, but not at the start or end
-        let ident = self.read_until('=')?.trim().to_string();
+        let ident = self
+            .read_until(|c| !is_valid_identifier_delimiter(c))?
+            .trim()
+            .to_string();
 
         // Identifiers can never be empty
         // If we get into this state, then that's really impressive
@@ -137,7 +153,7 @@ impl<T: IntoIterator<Item = char>> Lexer<T> {
     fn read_next_literal(&mut self, delim: char) -> NextTokenResult {
         // Read characters until we hit a closing quote
         // Unlike identifiers, literals may contain trailing or leading whitespace
-        let literal = self.read_until(delim)?;
+        let literal = self.read_until_char(delim)?;
 
         // Empty is invalid for literals in EBNF
         // If we get into this state, then that's really impressive
@@ -159,6 +175,22 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
         // Attempt to read the next token
         use Token::*;
         match self.inner.peek() {
+            Some(&'[') => {
+                self.inner.next();
+                Some(OpeningBracket)
+            }
+            Some(&']') => {
+                self.inner.next();
+                Some(ClosingBracket)
+            }
+            Some(&'{') => {
+                self.inner.next();
+                Some(OpeningBrace)
+            }
+            Some(&'}') => {
+                self.inner.next();
+                Some(ClosingBrace)
+            }
             Some(&'(') => {
                 // Can either be a grouping or a comment
                 self.inner.next(); // Consume the '('
@@ -183,6 +215,14 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
                 self.inner.next(); // Consume the '#'
                 self.eat_one_line_comment();
                 self.next() // Recurse to the next token after the comment
+            }
+            Some(&'*') => {
+                self.inner.next();
+                Some(Repetition)
+            }
+            Some(&'-') => {
+                self.inner.next();
+                Some(Except)
             }
             Some(&'=') => {
                 self.inner.next();
@@ -276,6 +316,55 @@ mod test {
                 Separator,
                 literal!("false"),
                 Terminator,
+            ],
+            tokens.as_slice()
+        );
+    }
+
+    #[test]
+    pub fn it_lexes_all_symbols() {
+        // Give it letter vomit.
+        let input = r#"
+        identifier "literal" 'another literal' * - = , | ; [ ] { } ( )
+        "#;
+
+        let lexer = Lexer::new(input.chars());
+        let tokens: Vec<Token> = lexer.collect();
+
+        use Token::*;
+        assert_eq!(tokens.len(), 15);
+        assert_eq!(
+            [
+                identifier!("identifier"),
+                literal!("literal"),
+                literal!("another literal"),
+                Repetition,
+                Except,
+                Assignment,
+                Concat,
+                Separator,
+                Terminator,
+                OpeningBracket,
+                ClosingBracket,
+                OpeningBrace,
+                ClosingBrace,
+                OpeningParen,
+                ClosingParen,
+            ],
+            tokens.as_slice()
+        );
+    }
+
+    #[test]
+    pub fn it_lexes_identifiers_with_spaces() {
+        let input = "identifiers with spaces are valid   ;";
+        let lexer = Lexer::new(input.chars());
+        let tokens: Vec<Token> = lexer.collect();
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(
+            [
+                identifier!("identifiers with spaces are valid"),
+                Token::Terminator
             ],
             tokens.as_slice()
         );
