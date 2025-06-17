@@ -284,15 +284,13 @@ mod test {
         };
     }
 
-    macro_rules! string_literal {
-        ($s:expr) => {
-            crate::lex::Token::StringLiteral($s.to_string())
-        };
-    }
-
-    macro_rules! integer_literal {
-        ($n:expr) => {
-            crate::lex::Token::IntegerLiteral($n)
+    macro_rules! literal {
+        ($s:literal) => {
+            if stringify!($s).starts_with('"') || stringify!($s).starts_with('\'') {
+                crate::lex::Token::StringLiteral($s.to_string())
+            } else {
+                crate::lex::Token::IntegerLiteral(stringify!($s).parse::<i64>().unwrap())
+            }
         };
     }
 
@@ -311,9 +309,9 @@ mod test {
             [
                 identifier!("boolean"),
                 Assignment,
-                string_literal!("true"),
+                literal!("true"),
                 Separator,
-                string_literal!("false"),
+                literal!("false"),
                 Terminator,
             ],
             tokens.as_slice()
@@ -340,13 +338,13 @@ mod test {
             [
                 identifier!("boolean"),
                 Assignment,
-                string_literal!("true"),
+                literal!("true"),
                 Separator,
-                string_literal!("false"),
+                literal!("false"),
                 Separator,
-                string_literal!("maybe"),
+                literal!("maybe"),
                 Separator,
-                string_literal!("both"),
+                literal!("both"),
                 Terminator,
             ],
             tokens.as_slice()
@@ -368,8 +366,8 @@ mod test {
         assert_eq!(
             [
                 identifier!("identifier"),
-                string_literal!("literal"),
-                string_literal!("another literal"),
+                literal!("literal"),
+                literal!("another literal"),
                 Repetition,
                 Except,
                 Assignment,
@@ -413,8 +411,8 @@ mod test {
         assert_eq!(tokens.len(), 2);
         assert_eq!(
             [
-                string_literal!("here's a string with a single quote in it"),
-                string_literal!("and here is a string with \"a double quote\" as they say"),
+                literal!("here's a string with a single quote in it"),
+                literal!("and here is a string with \"a double quote\" as they say"),
             ],
             tokens.as_slice()
         );
@@ -428,10 +426,10 @@ mod test {
         assert_eq!(tokens.len(), 5);
         assert_eq!(
             [
-                integer_literal!(12345),
-                integer_literal!(67890),
-                integer_literal!(0),
-                integer_literal!(12),
+                literal!(12345),
+                literal!(67890),
+                literal!(0),
+                literal!(12),
                 Token::Terminator,
             ],
             tokens.as_slice()
