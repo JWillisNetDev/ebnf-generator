@@ -18,7 +18,8 @@ use std::iter::Peekable;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
     Identifier(String),
-    Literal(String),
+    StringLiteral(String),
+    IntegerLiteral(i64),
 
     // Symbols
     Repetition, // *
@@ -56,6 +57,10 @@ fn is_valid_identifier_delimiter(c: char) -> bool {
 
 fn is_valid_literal_delimiter(c: char) -> bool {
     c == '"' || c == '\''
+}
+
+fn is_valid_integer_delimiter(c: char) -> bool {
+    c.is_numeric()
 }
 
 impl<T: IntoIterator<Item = char>> Lexer<T> {
@@ -150,7 +155,7 @@ impl<T: IntoIterator<Item = char>> Lexer<T> {
         }
     }
 
-    fn read_next_literal(&mut self, delim: char) -> NextTokenResult {
+    fn read_next_string_literal(&mut self, delim: char) -> NextTokenResult {
         // Read characters until we hit a closing quote
         // Unlike identifiers, literals may contain trailing or leading whitespace
         let literal = self.read_until_char(delim)?;
@@ -161,7 +166,15 @@ impl<T: IntoIterator<Item = char>> Lexer<T> {
             return Err("Expected string literal but found empty string".to_string());
         }
         self.inner.next();
-        Ok(Token::Literal(literal))
+        Ok(Token::StringLiteral(literal))
+    }
+
+    fn read_next_integer_literal(&mut self) -> NextTokenResult {
+        let buf = self.read_until(|c| !is_valid_integer_delimiter(c))?;
+        let num = buf
+            .parse::<i64>()
+            .map_err(|_| format!("Failed to parse integer literal: '{}'", buf))?;
+        Ok(Token::IntegerLiteral(num))
     }
 }
 
@@ -240,11 +253,15 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
                 self.inner.next();
                 Some(Terminator)
             }
-            // String literals
+            // Literals
             Some(&c) if is_valid_literal_delimiter(c) => {
                 self.inner.next(); // Consume the opening quote
-                let literal = self.read_next_literal(c).unwrap_or_else(Error);
+                let literal = self.read_next_string_literal(c).unwrap_or_else(Error);
                 Some(literal)
+            }
+            Some(&c) if c.is_numeric() => {
+                let integer = self.read_next_integer_literal().unwrap_or_else(Error);
+                Some(integer)
             }
             // Identifiers
             Some(&c) if is_valid_identifier_delimiter(c) => {
@@ -267,9 +284,15 @@ mod test {
         };
     }
 
-    macro_rules! literal {
+    macro_rules! string_literal {
         ($s:expr) => {
-            crate::lex::Token::Literal($s.to_string())
+            crate::lex::Token::StringLiteral($s.to_string())
+        };
+    }
+
+    macro_rules! integer_literal {
+        ($n:expr) => {
+            crate::lex::Token::IntegerLiteral($n)
         };
     }
 
@@ -288,9 +311,9 @@ mod test {
             [
                 identifier!("boolean"),
                 Assignment,
-                literal!("true"),
+                string_literal!("true"),
                 Separator,
-                literal!("false"),
+                string_literal!("false"),
                 Terminator,
             ],
             tokens.as_slice()
@@ -317,13 +340,13 @@ mod test {
             [
                 identifier!("boolean"),
                 Assignment,
-                literal!("true"),
+                string_literal!("true"),
                 Separator,
-                literal!("false"),
+                string_literal!("false"),
                 Separator,
-                literal!("maybe"),
+                string_literal!("maybe"),
                 Separator,
-                literal!("both"),
+                string_literal!("both"),
                 Terminator,
             ],
             tokens.as_slice()
@@ -345,8 +368,8 @@ mod test {
         assert_eq!(
             [
                 identifier!("identifier"),
-                literal!("literal"),
-                literal!("another literal"),
+                string_literal!("literal"),
+                string_literal!("another literal"),
                 Repetition,
                 Except,
                 Assignment,
@@ -390,8 +413,26 @@ mod test {
         assert_eq!(tokens.len(), 2);
         assert_eq!(
             [
-                literal!("here's a string with a single quote in it"),
-                literal!("and here is a string with \"a double quote\" as they say"),
+                string_literal!("here's a string with a single quote in it"),
+                string_literal!("and here is a string with \"a double quote\" as they say"),
+            ],
+            tokens.as_slice()
+        );
+    }
+
+    #[test]
+    pub fn it_lexes_integer_literals() {
+        let input = "12345 67890 0 12 ;";
+        let lexer = Lexer::new(input.chars());
+        let tokens: Vec<Token> = lexer.collect();
+        assert_eq!(tokens.len(), 5);
+        assert_eq!(
+            [
+                integer_literal!(12345),
+                integer_literal!(67890),
+                integer_literal!(0),
+                integer_literal!(12),
+                Token::Terminator,
             ],
             tokens.as_slice()
         );
