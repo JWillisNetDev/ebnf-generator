@@ -123,7 +123,7 @@ impl<T: IntoIterator<Item = char>> Lexer<T> {
         while let Some(&c) = self.inner.peek() {
             if c == delim {
                 return Ok(buf);
-            } else if is_valid_identifier_delimiter(c) {
+            } else {
                 self.inner.next(); // Consume the character
                 buf.push(c);
             }
@@ -374,6 +374,24 @@ mod test {
             [
                 identifier!("identifiers with spaces are valid"),
                 Token::Terminator
+            ],
+            tokens.as_slice()
+        );
+    }
+
+    #[test]
+    pub fn it_lexes_literals_with_troublesome_characters() {
+        let input = r#"
+            "here's a string with a single quote in it"
+            'and here is a string with "a double quote" as they say'
+        "#;
+        let lexer = Lexer::new(input.chars());
+        let tokens: Vec<Token> = lexer.collect();
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(
+            [
+                literal!("here's a string with a single quote in it"),
+                literal!("and here is a string with \"a double quote\" as they say"),
             ],
             tokens.as_slice()
         );
