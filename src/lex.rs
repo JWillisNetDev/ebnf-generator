@@ -301,13 +301,18 @@ mod test {
     pub fn it_eats_comments() {
         let input = r#"
         (* This is a comment *)
-        boolean = "true" | "false"; # this is also a comment"#;
+        boolean = "true" #bools can be true
+            | "false" (* bools can be false
+            | "lorem ipsum" # Bools cannot be lorem ipsum. *)
+            | "maybe" # bools can be either
+            | "both" # or sometimes even both
+            ;"#;
 
         let lexer = Lexer::new(input.chars());
         let tokens: Vec<Token> = lexer.collect();
 
         use Token::*;
-        assert_eq!(tokens.len(), 6);
+        assert_eq!(tokens.len(), 10);
         assert_eq!(
             [
                 identifier!("boolean"),
@@ -315,6 +320,10 @@ mod test {
                 literal!("true"),
                 Separator,
                 literal!("false"),
+                Separator,
+                literal!("maybe"),
+                Separator,
+                literal!("both"),
                 Terminator,
             ],
             tokens.as_slice()
